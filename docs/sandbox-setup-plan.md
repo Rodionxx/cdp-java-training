@@ -4,7 +4,7 @@
 
 ## 0. Что получится и сколько времени
 
-Модель: администраторы делают минимум разовых действий, всё остальное вы делаете сами с максимальными правами внутри песочниц. В Atlassian от админов нужно: создать sandbox без продовых данных, выдать вам в нём роли Site admin, App admin для Jira и User access admin, создать service account с токеном и подтвердить две политики уровня организации. В Notion: создать воркспейс внутри Enterprise-организации и выдать вам роли Workspace owner, IT admin, Compliance admin и People admin. Внутри Jira-песочницы вместо групп организации используются роли проектов, чтобы не зависеть от управления группами. Покупать ничего не нужно: sandbox входит в план Jira Premium/Enterprise, воркспейс наследует Notion Enterprise.
+Модель: администраторы делают минимум разовых действий, всё остальное вы делаете сами с максимальными правами внутри песочниц. В Atlassian от админов нужно: создать sandbox без продовых данных, выдать вам в нём роли Site admin, App admin для Jira и User access admin, создать service account с токеном и подтвердить две политики уровня организации. В Notion: создать воркспейс внутри Enterprise-организации, сделать вас его Workspace owner и либо выдать custom admin role, ограниченную этим воркспейсом (audit log, участники, интеграции), либо выполнить несколько разовых действий на уровне организации. Готовые роли IT admin, Compliance admin и People admin не запрашиваем: они действуют на всю организацию. Внутри Jira-песочницы вместо групп организации используются роли проектов, чтобы не зависеть от управления группами. Покупать ничего не нужно: sandbox входит в план Jira Premium/Enterprise, воркспейс наследует Notion Enterprise.
 
 К концу плана у вас будут: песочница Jira с двумя проектами (`PRO`, который можно синхронизировать, и `SEC`, который нельзя), три аккаунта Atlassian (вы как администратор, сервисный аккаунт, обычный участник), воркспейс Notion с закрытым тимспейсом, интеграцией и токенами, запущенный нативный Jira Sync и результаты ручных тестов, включая три теста, доступные только на Enterprise: two-way sync, ограничение connections и audit log. Всё остальное (проверки по API, прототип Notion Workers, правило Jira Automation, отчёт) я сделаю сам.
 
@@ -18,7 +18,7 @@
 
 | Что | Значение | Комментарий |
 |---|---|---|
-| Ваш аккаунт | рабочий корпоративный аккаунт | В песочнице Atlassian: Site admin, App admin для Jira, User access admin. В Notion: Workspace owner + IT admin + Compliance admin + People admin |
+| Ваш аккаунт | рабочий корпоративный аккаунт | В песочнице Atlassian: Site admin, App admin для Jira, User access admin. В Notion: Workspace owner тестового воркспейса + custom admin role, ограниченная этим воркспейсом (либо разовые действия владельца организации) |
 | Сервисный аккаунт | штатный Atlassian service account `notion-sync-svc` | Создают админы (только Organization admin может), дают ему доступ к Jira песочницы и членство в группе `jira-admins-<site>-sandbox-<id>`, выпускают токен со скоупами и передают через менеджер паролей. Запасной вариант, если Notion не примет скоупированный токен: managed account с почтовым ящиком `jira-notion-svc@<домен>` |
 | Участник | второй корпоративный аккаунт или коллега | Имитирует обычного сотрудника, у которого есть доступ к секретному проекту. Та же почта должна быть в Notion, чтобы проверить identity mapping |
 | URL песочницы Jira | появится после создания, вида `https://<site>-sandbox-<id>.atlassian.net` | Atlassian sandbox организации, без продовых данных |
@@ -133,22 +133,26 @@
 
 ### 3.1. Воркспейс внутри Enterprise-организации
 
-Нужно от владельца организации Notion, одним заходом: создать воркспейс `Jira sync sandbox` внутри организации, назначить вас Workspace owner, выдать вам роли `IT admin`, `Compliance admin` и `People admin` на время тестов (organization settings, `People`, `Manage admin roles`) и выделить воркспейсу небольшой лимит Notion credits, если организация на multi-workspace контракте (Workers работают на credits). Если политика организации разрешает участникам создавать воркспейсы, создайте его сами: переключатель воркспейсов, `Join or create workspace`, `Create a workspace`; на верифицированном домене он попадёт в организацию.
+Нужно от владельца организации Notion, одним заходом:
+
+1. Создать воркспейс `Jira sync sandbox` внутри организации и назначить вас Workspace owner. Это и есть «максимум прав внутри»: по документации Notion workspace owner «can manage everything in the workspace from settings and security to members and groups».
+2. Выдать вам custom admin role, ограниченную только этим воркспейсом (organization settings, `People`, `Manage admin roles`, `Create new role`, выбрать области audit log, участники и интеграции, ограничить воркспейсом `Jira sync sandbox`). Custom roles в beta; если владелец организации их не использует, заменой служат три разовых действия: подтвердить, что централизованные настройки организации не ограничивают для этого воркспейса connections, Import, PAT и Workers; добавить коллегу как Member, если участники провижинятся через SCIM; выгрузить audit log по воркспейсу в конце тестов.
+3. Если организация на multi-workspace контракте, выделить воркспейсу небольшой лимит Notion credits (Workers работают на credits).
 
 Получив доступ, проверьте:
 
 1. В переключателе воркспейсов есть `Jira sync sandbox`, в `Settings`, `People` вы указаны как Workspace owner.
 2. `Settings`, `Billing` показывает план Enterprise (наследуется от организации).
 3. `Settings`, `Import` содержит пункт `Jira Sync`, а `Settings`, `Connections` открывается и содержит вкладку `Manage`.
-4. Переключатель воркспейсов, `Manage organization` открывает консоль организации: с ролью IT admin вам доступны настройки интеграций и безопасности, с ролью Compliance admin вкладка `Data & compliance` с audit log, с ролью People admin управление участниками и группами. Если централизованные настройки организации ограничивают connections или Import, снимите ограничение только для этого воркспейса или заранее одобрите Jira Sync и internal connections.
+4. Если custom role выдана: переключатель воркспейсов, `Manage organization` открывает консоль организации, и в ней видны только разделы из роли, отфильтрованные по воркспейсу `Jira sync sandbox`.
 
 ### 3.2. Что проверить у владельца организации
 
 Теперь это ваши собственные проверки:
 
-1. Notion Workers доступны в воркспейсе (beta, расходуют credits): в разделе разработчика есть страница Workers, а при создании personal access token предлагается возможность `Workers`. Если её нет, посмотрите в консоли организации лимит credits для воркспейса и включите on-demand spend или задайте лимит.
+1. Notion Workers доступны в воркспейсе (beta, расходуют credits): в разделе разработчика есть страница Workers, а при создании personal access token предлагается возможность `Workers`. Если её нет, проверьте лимит credits для воркспейса: он задаётся владельцем организации в консоли организации.
 2. Политика создания PAT: на Enterprise по умолчанию «Workspace owners and selected groups», вам как owner этого достаточно.
-3. Audit log: `Manage organization`, `Data & compliance`, `Audit log`, фильтр по воркспейсу `Jira sync sandbox`. Убедитесь, что события отображаются; выгрузку сделаете сами в конце (тест T7).
+3. Audit log: с custom role откройте `Manage organization`, `Data & compliance`, `Audit log`, фильтр по воркспейсу `Jira sync sandbox`, убедитесь, что события отображаются. Без роли выгрузку в конце сделает владелец организации (тест T7).
 
 ### 3.3. Участник
 
@@ -230,7 +234,7 @@
 
 ### 3.14. Тест T7: audit log (только Enterprise)
 
-По окончании тестов: `Manage organization`, `Data & compliance`, `Audit log`, фильтр по воркспейсу `Jira sync sandbox` и периоду тестов, экспорт. Пришлите файл мне. Я сверю, какие из наших действий (настройка Jira Sync, добавление проекта участником, подключение интеграции, PAT, Worker) там видны, а какие нет. Отдельно посмотрите audit log песочницы Jira (`Settings`, `System`, `Audit log`): там должны быть изменения permission schemes, а создания webhooks, по опыту сообщества, там нет.
+По окончании тестов: `Manage organization`, `Data & compliance`, `Audit log`, фильтр по воркспейсу `Jira sync sandbox` и периоду тестов, экспорт (с custom role сами, иначе просите владельца организации). Пришлите файл мне. Я сверю, какие из наших действий (настройка Jira Sync, добавление проекта участником, подключение интеграции, PAT, Worker) там видны, а какие нет. Отдельно посмотрите audit log песочницы Jira (`Settings`, `System`, `Audit log`): там должны быть изменения permission schemes, а создания webhooks, по опыту сообщества, там нет.
 
 ## 4. Порядок и контрольные точки
 
@@ -263,7 +267,7 @@
 
 ## 6. Чек-лист перед тем, как позвать меня на контрольную точку A
 
-- [ ] Роли получены: Site admin, App admin для Jira и User access admin в песочнице Atlassian; Workspace owner + IT admin + Compliance admin + People admin в Notion.
+- [ ] Роли получены: Site admin, App admin для Jira и User access admin в песочнице Atlassian; Workspace owner воркспейса `Jira sync sandbox` в Notion плюс custom admin role, ограниченная этим воркспейсом, либо договорённость о разовых действиях владельца организации.
 - [ ] Sandbox Jira создан админами без копирования данных, вы в нём Jira-админ (в Settings, Work items есть Permission schemes).
 - [ ] Админы подтвердили две политики (API-токены разрешены, data security policies песочницу не покрывают); две настройки сделали вы (Connected apps, allowlist для Automation).
 - [ ] Три аккаунта имеют доступ к песочнице: вы, service account `notion-sync-svc` (в группе `jira-admins-...-sandbox-...`), участник.
