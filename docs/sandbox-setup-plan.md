@@ -19,7 +19,8 @@
 | Что | Значение | Комментарий |
 |---|---|---|
 | Ваш аккаунт | рабочий корпоративный аккаунт | В песочнице Atlassian: Site admin, App admin для Jira, User access admin. В Notion: Workspace owner тестового воркспейса + custom admin role, ограниченная этим воркспейсом (либо разовые действия владельца организации) |
-| Сервисный аккаунт | штатный Atlassian service account `notion-sync-svc` | Создают админы (только Organization admin может), дают ему доступ к Jira песочницы и членство в группе `jira-admins-<site>-sandbox-<id>`, выпускают токен со скоупами и передают через менеджер паролей. Запасной вариант, если Notion не примет скоупированный токен: managed account с почтовым ящиком `jira-notion-svc@<домен>` |
+| Аккаунт для нативного Jira Sync | managed account `jira-notion-svc@<домен>` с почтовым ящиком | Нужен именно обычный аккаунт: Jira Sync не работает со скоупированными токенами (проверено p.arlanov в проде, совпадает с рекомендацией Notion «scopeless token»), а у штатных Atlassian service accounts токены только со скоупами. Админы создают аккаунт, помещают его в authentication policy без принудительного SSO и с разрешёнными API-токенами, дают доступ к Jira песочницы и членство в `jira-admins-<site>-sandbox-<id>` |
+| Service account для Workers и проверок по API | штатный Atlassian service account `notion-sync-svc` | Токен со скоупами `read:jira-work`, `read:jira-user`, доступ только к песочнице, Administer Jira не нужен. Создают админы |
 | Участник | второй корпоративный аккаунт или коллега | Имитирует обычного сотрудника, у которого есть доступ к секретному проекту. Та же почта должна быть в Notion, чтобы проверить identity mapping |
 | URL песочницы Jira | появится после создания, вида `https://<site>-sandbox-<id>.atlassian.net` | Atlassian sandbox организации, без продовых данных |
 | Проект, который синхронизируем | ключ `PRO`, название `PRO sandbox`, company-managed, шаблон Scrum | |
@@ -43,8 +44,9 @@
 
 1. Создать sandbox для Jira в Atlassian Administration (`Apps`, `Sandboxes`, `Create sandbox`) **без** `Copy production data`.
 2. Выдать вам в песочнице роли: `Site admin` (sandbox-сайт), `App admin` для Jira песочницы (глобальное право Administer Jira), `User access admin` для Jira песочницы (доступ пользователей и группы).
-3. Создать штатный service account `notion-sync-svc`, дать ему доступ к Jira песочницы, добавить в группу `jira-admins-<site>-sandbox-<id>`, выпустить API-токен со скоупами `read:jira-work`, `read:jira-user`, `write:jira-work`, `manage:jira-webhook` (или гранулярные `read:webhook:jira`, `write:webhook:jira`, `delete:webhook:jira`) сроком 90 дней и передать его вам через менеджер паролей вместе с e-mail аккаунта вида `...@serviceaccount.atlassian.com`.
-4. Подтвердить две политики уровня организации: (а) для вас и тестового участника разрешены API-токены (`Security`, `Authentication policies`, `User API tokens` = allow); (б) ни одна data security policy с app access rule не покрывает sandbox-сайт.
+3. Создать обычный managed account `jira-notion-svc@<домен>` с почтовым ящиком (или переслать его письма вам), поместить его в authentication policy без принудительного SSO и с разрешёнными API-токенами (штатная практика Atlassian для bot-аккаунтов), дать доступ к Jira песочницы и добавить в группу `jira-admins-<site>-sandbox-<id>`. Токен без скоупов на 90 дней создаёт владелец ящика (вы, если ящик передан вам, иначе админы) на `https://id.atlassian.com/manage-profile/security/api-tokens` и кладёт в менеджер паролей. Скоупированные токены и штатные service accounts для Jira Sync не подходят: интеграция отвечает «нужен админ» и не синхронизирует (проверено p.arlanov).
+4. Создать штатный service account `notion-sync-svc` только для Workers и моих проверок по API: доступ к Jira песочницы, без группы jira-admins, API-токен со скоупами `read:jira-work`, `read:jira-user` на 90 дней, передать через менеджер паролей вместе с e-mail вида `...@serviceaccount.atlassian.com`.
+5. Подтвердить две политики уровня организации: (а) для вас и тестового участника разрешены API-токены (`Security`, `Authentication policies`, `User API tokens` = allow); (б) ни одна data security policy с app access rule не покрывает sandbox-сайт.
 
 Что проверяете вы, получив ответ:
 
@@ -58,17 +60,18 @@
 
 ### 2.3. Аккаунты
 
-1. Service account `notion-sync-svc` создали админы. Проверьте в `Directory`, `Service accounts` (если раздел вам виден): у аккаунта есть доступ к Jira песочницы и членство в `jira-admins-<site>-sandbox-<id>`. Пароля у него нет, в интерфейс он не входит, это нормально.
-2. Участник: коллега или ваш второй корпоративный аккаунт. Выдайте ему доступ к песочнице сами: `Apps`, `Atlassian apps`, sandbox, `•••`, `Manage users`, группа `jira-users-<site>-sandbox-<id>` (либо `Directory`, `Users`, участник, `Grant access`, Jira песочницы, роль `User`).
-3. Проверка: под своим аккаунтом и под участником песочница открывается; в `Directory`, `Users` у обоих есть доступ к Jira песочницы.
+1. `jira-notion-svc@<домен>` создали админы. Проверьте: в профиле «сервисный» он входит в Atlassian по паролю (без SSO), открывает URL песочницы, проектов пока не видит; в `Directory`, `Users` (если раздел вам виден) у него есть доступ к Jira песочницы и членство в `jira-admins-<site>-sandbox-<id>`.
+2. Штатный service account `notion-sync-svc` тоже создали админы: доступ к Jira песочницы есть, в группе jira-admins его нет. Пароля у него нет, в интерфейс он не входит, это нормально.
+3. Участник: коллега. Выдайте ему доступ к песочнице сами: `Apps`, `Atlassian apps`, sandbox, `•••`, `Manage users`, группа `jira-users-<site>-sandbox-<id>` (либо `Directory`, `Users`, участник, `Grant access`, Jira песочницы, роль `User`).
+4. Проверка: под своим аккаунтом, под `jira-notion-svc` и под участником песочница открывается.
 
 ### 2.4. Группы
 
 Групп организации не создаём вовсе: всё, что нужно, делается ролями проектов, которыми Jira-админ управляет сам.
 
 1. В песочнице шестерёнка `Settings`, `System`, слева `Project roles` (`Space roles`), `Add project role`. Создайте роль `Sandbox Humans` и роль `Notion Sync Reader`.
-2. Членство раздаётся после создания проектов (2.5): откройте проект `PRO`, `Project settings`, `People`, `Add people`: себя и участника в роль `Sandbox Humans`, сервисный аккаунт `notion-sync-svc` в роль `Notion Sync Reader`. В проекте `SEC`: себя и участника в `Sandbox Humans`, сервисный аккаунт никуда не добавляйте.
-3. Проверка: в `Project settings`, `People` проекта `SEC` сервисного аккаунта нет ни в одной роли.
+2. Членство раздаётся после создания проектов (2.5): откройте проект `PRO`, `Project settings`, `People`, `Add people`: себя и участника в роль `Sandbox Humans`, оба сервисных аккаунта (`jira-notion-svc` и `notion-sync-svc`) в роль `Notion Sync Reader`. В проекте `SEC`: себя и участника в `Sandbox Humans`, сервисные аккаунты никуда не добавляйте.
+3. Проверка: в `Project settings`, `People` проекта `SEC` ни одного сервисного аккаунта нет ни в одной роли.
 
 ### 2.5. Два проекта
 
@@ -105,25 +108,20 @@
 
 ### 2.8. Право Administer Jira сервисному аккаунту
 
-Это право нужно только для нативного Jira Sync (создание webhooks). Его уже дали админы, добавив сервисный аккаунт в `jira-admins-<site>-sandbox-<id>`.
+Это право нужно только для нативного Jira Sync (создание webhooks). Его уже дали админы, добавив `jira-notion-svc` в `jira-admins-<site>-sandbox-<id>`. Штатному `notion-sync-svc` оно не нужно.
 
 1. Проверьте: шестерёнка `Settings`, `System`, `Global permissions`: в строке `Administer Jira` есть группа `jira-admins-<site>-sandbox-<id>`.
-2. Проверьте, что эта группа не фигурирует в строке `Browse Projects` ваших схем `PRO sandbox scheme` и `SEC sandbox scheme` (см. 2.7, шаг 5). Именно это и делает потолок сервисного аккаунта равным `PRO`.
-3. Видимость задач под сервисным аккаунтом в интерфейсе проверить нельзя (он не входит в UI); это сделаю я по API на контрольной точке A. Для Workers и Automation право Administer Jira не нужно, после тестов нативного Sync попросите админов убрать аккаунт из группы.
+2. Проверьте, что эта группа не фигурирует в строке `Browse Projects` ваших схем `PRO sandbox scheme` и `SEC sandbox scheme` (см. 2.7, шаг 5). Именно это и делает потолок `jira-notion-svc` равным `PRO`.
+3. Проверка глазами: в профиле «сервисный» под `jira-notion-svc` в строке поиска задач введите JQL `project = SEC`, ожидается «No work items were found», а `project = PRO` показывает все 7 задач. Сделайте скриншоты. По API я повторю то же на контрольной точке A. После тестов нативного Sync попросите админов убрать аккаунт из группы jira-admins.
 
 ### 2.9. API-токены
 
-Токен сервисного аккаунта выпускают админы (см. 2.1, шаг 3), это `JIRA_SVC_TOKEN_SCOPED`. Запасной вариант, только если Notion откажется работать со скоупированным токеном (см. 3.7): попросить IT создать почтовый ящик `jira-notion-svc@<домен>`, завести на него managed account с теми же ролями в проектах и членством в `jira-admins-<site>-sandbox-<id>` и создать обычный токен без скоупов на `https://id.atlassian.com/manage-profile/security/api-tokens`. Это `JIRA_SVC_TOKEN`.
+Токены без скоупов может создать только сам владелец аккаунта, войдя на `https://id.atlassian.com/manage-profile/security/api-tokens`.
 
-Остальные токены каждый владелец аккаунта создаёт сам.
-
-В профиле «админ» (ваш аккаунт):
-
-1. `https://id.atlassian.com/manage-profile/security/api-tokens`, `Create API token` без скоупов, название `claude-sandbox-admin`, срок 30 дней. Это `JIRA_ADMIN_TOKEN`. Он нужен мне, чтобы читать список webhooks, проверять схемы прав и создавать тестовые задачи по API.
-
-В профиле «участник» (необязательно, но полезно):
-
-2. `Create API token` без скоупов, название `member-sandbox`, срок 30 дней. Это `JIRA_MEMBER_TOKEN`, чтобы я мог сравнить видимость проектов у участника и у сервисного аккаунта по API.
+1. `jira-notion-svc` (в профиле «сервисный», если ящик передан вам, иначе это делают админы): `Create API token` **без** скоупов, название `notion-sync-sandbox`, срок 90 дней. Это `JIRA_SVC_TOKEN`. Скоупированный вариант не создавайте: Jira Sync с ним не работает.
+2. Штатный `notion-sync-svc`: токен со скоупами `read:jira-work`, `read:jira-user` выпускают админы в `Directory`, `Service accounts`, `Create credentials`. Это `JIRA_SA_TOKEN_SCOPED`, он нужен для Workers и для моих проверок «что видит read-only аккаунт».
+3. Ваш аккаунт (профиль «админ»): `Create API token` без скоупов, название `claude-sandbox-admin`, срок 30 дней. Это `JIRA_ADMIN_TOKEN`. Он нужен мне, чтобы читать список webhooks, проверять схемы прав и создавать тестовые задачи по API. Если хотите обойтись без человеческих токенов, попросите админов добавить `notion-sync-svc` в `jira-admins-<site>-sandbox-<id>` только на время проверок, тогда его скоупированный токен заменит ваш.
+4. Участник (необязательно): `Create API token` без скоупов, название `member-sandbox`, срок 30 дней. Это `JIRA_MEMBER_TOKEN`.
 
 ### 2.10. Контрольная точка A
 
@@ -181,11 +179,11 @@
 
 ### 3.7. Нативный Jira Sync
 
-Основной вариант: скоупированный токен штатного service account. Если он сработает, это лучший результат для безопасности и никакого почтового ящика не нужно.
+Используется только токен без скоупов аккаунта `jira-notion-svc`. Вариант со скоупированным токеном штатного service account уже проверен p.arlanov в проде: Notion отвечает «нужен админ» и не синхронизирует, повторять его не нужно.
 
 1. В профиле «админ» в Notion: `Settings`, `Import`, найдите `Jira Sync`, нажмите `Get started`.
-2. Введите: e-mail сервисного аккаунта (адрес вида `...@serviceaccount.atlassian.com` из карточки `notion-sync-svc` в `Directory`, `Service accounts`), URL песочницы Jira, токен `JIRA_SVC_TOKEN_SCOPED`. `Next`.
-3. Если появится ошибка или статус `Sync failed`, сделайте скриншот и сообщите мне: я проверю по API, какой именно запрос Notion не проходит. Только после этого включайте запасной вариант из 2.9 (managed account с почтовым ящиком и токен без скоупов): `Settings`, `Import`, `...` рядом с Jira, `Remove`, и повторите шаги 1–2 с `JIRA_SVC_TOKEN`.
+2. Введите: e-mail `jira-notion-svc@<домен>`, URL песочницы Jira, токен `JIRA_SVC_TOKEN`. `Next`.
+3. Если появится ошибка или статус `Sync failed`, сделайте скриншот и сообщите мне: я проверю по API, какой именно запрос Notion не проходит (например, не хватает ли глобального права `Browse users and groups`).
 4. Выберите `Create a new sync`. Запишите, какие проекты показаны в списке выбора: только `PRO` или также `SEC`. Сделайте скриншот списка. Отметьте только `PRO`.
 5. На шаге `Select properties to sync` отметьте всё. В качестве места размещения выберите тимспейс `Jira PRO sandbox`.
 6. Дождитесь появления баз проектов и задач. Запишите время от нажатия до появления всех 7 задач `PRO`. Проверьте, что в базе задач есть комментарий и вложение у `PRO Story 1`.
@@ -254,12 +252,13 @@
 |---|---|
 | `JIRA_SITE_URL` | URL песочницы, вида `https://<site>-sandbox-<id>.atlassian.net` |
 | `JIRA_ADMIN_EMAIL` | ваша рабочая почта |
-| `JIRA_ADMIN_TOKEN` | токен из 2.9, шаг 1 |
-| `JIRA_SVC_EMAIL` | e-mail service account вида `...@serviceaccount.atlassian.com` (или `jira-notion-svc@<домен>` для запасного варианта) |
-| `JIRA_SVC_TOKEN_SCOPED` | токен со скоупами от админов (2.1, шаг 3) |
-| `JIRA_SVC_TOKEN` | токен без скоупов из запасного варианта в 2.9, только если он понадобился |
+| `JIRA_ADMIN_TOKEN` | токен из 2.9, шаг 3 |
+| `JIRA_SVC_EMAIL` | `jira-notion-svc@<домен>` |
+| `JIRA_SVC_TOKEN` | токен без скоупов из 2.9, шаг 1 |
+| `JIRA_SA_EMAIL` | e-mail штатного service account вида `...@serviceaccount.atlassian.com` |
+| `JIRA_SA_TOKEN_SCOPED` | токен со скоупами от админов (2.9, шаг 2) |
 | `JIRA_MEMBER_EMAIL` | почта участника |
-| `JIRA_MEMBER_TOKEN` | токен из 2.9, шаг 2, если делали |
+| `JIRA_MEMBER_TOKEN` | токен из 2.9, шаг 4, если делали |
 | `NOTION_TOKEN` | Internal Integration Secret из 3.5, шаг 3 |
 | `NOTION_PAT_WORKERS` | Personal access token из 3.5, шаг 5 |
 
@@ -270,16 +269,16 @@
 - [ ] Роли получены: Site admin, App admin для Jira и User access admin в песочнице Atlassian; Workspace owner воркспейса `Jira sync sandbox` в Notion плюс custom admin role, ограниченная этим воркспейсом, либо договорённость о разовых действиях владельца организации.
 - [ ] Sandbox Jira создан админами без копирования данных, вы в нём Jira-админ (в Settings, Work items есть Permission schemes).
 - [ ] Админы подтвердили две политики (API-токены разрешены, data security policies песочницу не покрывают); две настройки сделали вы (Connected apps, allowlist для Automation).
-- [ ] Три аккаунта имеют доступ к песочнице: вы, service account `notion-sync-svc` (в группе `jira-admins-...-sandbox-...`), участник.
-- [ ] Роли проектов `Sandbox Humans` (вы и участник в `PRO` и `SEC`) и `Notion Sync Reader` (сервисный аккаунт только в `PRO`).
+- [ ] Четыре аккаунта имеют доступ к песочнице: вы, `jira-notion-svc` (в группе `jira-admins-...-sandbox-...`, в authentication policy без SSO), штатный `notion-sync-svc`, участник.
+- [ ] Роли проектов `Sandbox Humans` (вы и участник в `PRO` и `SEC`) и `Notion Sync Reader` (оба сервисных аккаунта только в `PRO`).
 - [ ] Проекты `PRO` и `SEC`, оба company-managed, с тестовыми задачами.
 - [ ] `PRO sandbox scheme` и `SEC sandbox scheme` привязаны к своим проектам, из `Browse Projects` убраны `Any logged in user`, `Application access` и все группы.
 - [ ] Permission helper: сервисный аккаунт не видит `SEC-1`, видит `PRO-1`.
-- [ ] `Administer Jira` у группы `jira-admins-<site>-sandbox-<id>`, в которой состоит сервисный аккаунт, и этой группы нет в `Browse Projects` ваших схем.
-- [ ] Токены получены и сохранены в менеджере паролей: сервисного аккаунта от админов, свой и участника свои.
+- [ ] `Administer Jira` у группы `jira-admins-<site>-sandbox-<id>`, в которой состоит `jira-notion-svc`, и этой группы нет в `Browse Projects` ваших схем.
+- [ ] Токены получены и сохранены в менеджере паролей: без скоупов для `jira-notion-svc`, со скоупами для `notion-sync-svc`, свой и, если нужно, участника.
 - [ ] Переменные добавлены в окружение.
 
 ## 7. Что делать после испытаний
 
-Своими руками: отозвать свой токен и токен участника на `id.atlassian.com`, удалить Worker, интеграцию, PAT и синки в Notion, удалить тестовые проекты и схемы в песочнице, вернуть `Connected apps` и allowlist Automation в исходное состояние. Попросить админов: отозвать токен и удалить service account `notion-sync-svc`, деактивировать sandbox (`Apps`, `Sandboxes`, `Deactivate`), удалить воркспейс `Jira sync sandbox`, снять с вас временные роли в обеих системах.
+Своими руками: отозвать свой токен и токен участника на `id.atlassian.com`, удалить Worker, интеграцию, PAT и синки в Notion, удалить тестовые проекты и схемы в песочнице, вернуть `Connected apps` и allowlist Automation в исходное состояние. Попросить админов: отозвать токены и удалить `jira-notion-svc` и `notion-sync-svc`, деактивировать sandbox (`Apps`, `Sandboxes`, `Deactivate`), удалить воркспейс `Jira sync sandbox`, снять с вас временные роли в обеих системах.
 
